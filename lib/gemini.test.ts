@@ -56,7 +56,11 @@ describe("extractLabelFromImage", () => {
     vi.stubEnv("GEMINI_MODEL", undefined);
     generateContent.mockReset().mockResolvedValue({ text: JSON.stringify(extraction) });
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("throws a configuration error before creating a client if the key is missing", async () => {
     vi.stubEnv("GEMINI_API_KEY", undefined);
@@ -70,7 +74,7 @@ describe("extractLabelFromImage", () => {
 
   it.each(["image/jpeg", "image/png", "image/webp"] as const)("sends %s inline and validates the response", async (mimeType) => {
     expect(await extractLabelFromImage(image, mimeType)).toEqual(extraction);
-    expect(createClient).toHaveBeenCalledWith({ apiKey: testKey });
+    expect(createClient).toHaveBeenCalledWith({ apiKey: testKey, httpOptions: { retryOptions: { attempts: 1 } } });
     expect(generateContent.mock.calls[0][0].config.systemInstruction).toContain("governmentWarningBodyBold");
     expect(generateContent).toHaveBeenCalledExactlyOnceWith({
       model: "gemini-3.8-flash",
@@ -132,6 +136,7 @@ describe("extractLabelFromImage", () => {
   it.each([{}, { ...extraction, brandName: 42 }, { ...extraction, complianceStatus: "Pass" }])("rejects structurally invalid output", async (output) => {
     generateContent.mockResolvedValue({ text: JSON.stringify(output) });
     await expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({ code: "INVALID_EXTRACTION" });
+    expect(generateContent).toHaveBeenCalledTimes(1);
   });
 
   it("replaces SDK errors containing secrets with a safe error without a cause", async () => {
@@ -152,10 +157,89 @@ describe("extractLabelFromImage", () => {
   });
 
   it("detects rate limiting from the SDK's typed HTTP status without exposing its message", async () => {
+    vi.useFakeTimers();
     generateContent.mockRejectedValue(new ApiError({ message: testKey, status: 429 }));
-    await expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({
+    const assertion = expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({
       code: "RATE_LIMIT", message: "Gemini label extraction is temporarily rate limited.",
     });
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(generateContent).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not schedule a delay for first-attempt success", async () => {
+    vi.useFakeTimers();
+    expect(await extractLabelFromImage(image, "image/png")).toEqual(extraction);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([1, 2])("succeeds after %i transient failures with bounded exponential backoff", async (failures) => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    for (let i = 0; i < failures; i++) {
+      generateContent.mockRejectedValueOnce(new ApiError({ status: 503, message: testKey }));
+    }
+    const pending = extractLabelFromImage(image, "image/png");
+    await vi.advanceTimersByTimeAsync(624);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    if (failures === 2) {
+      await vi.advanceTimersByTimeAsync(1249);
+      expect(generateContent).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(await pending).toEqual(extraction);
+    expect(generateContent).toHaveBeenCalledTimes(failures + 1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([408, 500, 502, 503, 504])("bounds exhausted HTTP %i failures and sanitizes the error", async (status) => {
+    vi.useFakeTimers();
+    generateContent.mockRejectedValue(new ApiError({ status, message: testKey }));
+    const pending = extractLabelFromImage(image, "image/png");
+    const assertion = expect(pending).rejects.toMatchObject({ code: "GEMINI_REQUEST" });
+    await vi.runAllTimersAsync();
+    await assertion;
+    const error = await pending.catch((error: unknown) => error);
+    expect(String(error)).not.toContain(testKey);
+    expect(JSON.stringify(error)).not.toContain(testKey);
+    expect(error).not.toHaveProperty("cause");
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([400, 401, 403, 404, 422])("does not retry non-transient HTTP %i failures", async (status) => {
+    vi.useFakeTimers();
+    generateContent.mockRejectedValue(new ApiError({ status, message: testKey }));
+    await expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({ code: "GEMINI_REQUEST" });
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    Object.assign(new Error(testKey), { code: "ECONNRESET" }),
+    new TypeError(testKey, { cause: { code: "EAI_AGAIN" } }),
+    Object.assign(new Error(testKey), { name: "TimeoutError" }),
+  ])("retries recognized transient network and timeout errors", async (error) => {
+    vi.useFakeTimers();
+    generateContent.mockRejectedValueOnce(error);
+    const pending = extractLabelFromImage(image, "image/png");
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual(extraction);
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    new Error("503 timeout too many requests"),
+    Object.assign(new Error(testKey), { code: "ENOTFOUND" }),
+    Object.assign(new Error(testKey), { name: "AbortError" }),
+    Object.assign(new Error(testKey), { code: "CERT_HAS_EXPIRED" }),
+  ])("does not retry unknown errors, cancellation, or permanent network failures", async (error) => {
+    generateContent.mockRejectedValue(error);
+    await expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({ code: "GEMINI_REQUEST" });
+    expect(generateContent).toHaveBeenCalledTimes(1);
   });
 
   it("rejects empty images and unsupported MIME types without a request", async () => {
