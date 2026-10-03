@@ -1,10 +1,47 @@
 "use client";
 
-import { useCallback, useRef, useState, type FormEvent } from "react";
+import { useCallback, useReducer, useRef, useState, type FormEvent } from "react";
 import LabelImageUpload from "./label-image-upload";
 import { createVerificationRequest, requestLabelVerification, VerificationUiError, type VerifyLabelResponse } from "../lib/verify-label-client";
+import { finalReviewedStatus, manualReviewReducer, type ManualDecision, type ReviewStatus } from "../lib/manual-review";
 
 const statusLabels = { pass: "✓ Pass", needs_review: "⚠ Needs Review", fail: "✕ Fail" };
+
+function FieldReview({ fieldName, automatedStatus, decision, onDecision }: {
+  fieldName: string;
+  automatedStatus: ReviewStatus;
+  decision?: ManualDecision;
+  onDecision: (decision: ManualDecision) => void;
+}) {
+  const [note, setNote] = useState(decision?.note ?? "");
+  return (
+    <>
+      {decision && <div aria-live="polite">
+        <p className="font-semibold">Manual decision: {statusLabels[decision.manualStatus]}</p>
+        {decision.note && <p className="whitespace-pre-wrap">Review note: {decision.note}</p>}
+      </div>}
+      {automatedStatus !== "pass" && <details className="mt-4">
+        <summary className="cursor-pointer font-semibold">Review Result<span className="sr-only"> for {fieldName}</span></summary>
+        <div className="form-field mt-3">
+          <label>
+            Review note (optional)
+            <input type="text" maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} />
+          </label>
+          <p>Choose a decision to apply it with your note. Reviews last only until a new verification or page refresh.</p>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["pass", "Accept / Pass"],
+              ["needs_review", "Keep as Needs Review"],
+              ["fail", "Mark as Fail"],
+            ] as const).map(([manualStatus, label]) => (
+              <button type="button" key={manualStatus} className="remove-image-button" onClick={() => onDecision({ manualStatus, note: note.trim() })}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </details>}
+    </>
+  );
+}
 
 export default function Home() {
   const [isImported, setIsImported] = useState(false);
@@ -12,11 +49,13 @@ export default function Home() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<VerifyLabelResponse | null>(null);
+  const [manualReviews, dispatchReview] = useReducer(manualReviewReducer, {});
   const requestInFlight = useRef(false);
 
   const onPreparedImage = useCallback((image: Blob | null) => {
     setProcessedImage(image);
     setResult(null);
+    dispatchReview({ type: "reset" });
     setError("");
   }, []);
 
@@ -25,6 +64,7 @@ export default function Home() {
     if (requestInFlight.current) return;
     setError("");
     setResult(null);
+    dispatchReview({ type: "reset" });
     let body: FormData;
     try {
       body = createVerificationRequest(new FormData(event.currentTarget), processedImage);
@@ -56,7 +96,11 @@ export default function Home() {
         <h2 id="single-label-heading" className="text-2xl font-semibold">
           Single Label Verification
         </h2>
-        <form id="single-label-form" className="application-form" onSubmit={verifyLabel} onChange={() => { setResult(null); setError(""); }}>
+        <form id="single-label-form" className="application-form" onSubmit={verifyLabel} onChange={() => {
+          setResult(null);
+          dispatchReview({ type: "reset" });
+          setError("");
+        }}>
           <fieldset className="application-fields" disabled={isVerifying}>
           <div className="form-field">
             <label htmlFor="beverage-type">Beverage Type</label>
@@ -118,11 +162,16 @@ export default function Home() {
       {result && (
         <section className="verification-results" aria-labelledby="overall-result-heading">
           <div role="status">
-            <h2 id="overall-result-heading" className="text-2xl font-semibold">Overall Result</h2>
+            <h2 id="overall-result-heading" className="text-2xl font-semibold">Automated Result</h2>
             <p className="text-2xl font-semibold">{statusLabels[result.verification.overall.status]}</p>
             <p>Verification completed in {(result.processingTimeMs / 1000).toFixed(1)} seconds</p>
           </div>
           <p>{result.verification.overall.reason}</p>
+          {Object.keys(manualReviews).length > 0 && <div role="status">
+            <h2 className="text-2xl font-semibold">Final Reviewed Result</h2>
+            <p className="text-2xl font-semibold">{statusLabels[finalReviewedStatus(result.verification, manualReviews)]}</p>
+            <p>Uses manual decisions where provided and automated statuses for all other fields.</p>
+          </div>}
           {result.verification.imageQuality.status === "needs_review" && (
             <p className="verification-notice">We couldn’t confidently read all required label information. Please upload a clearer image with less glare and a straighter angle.</p>
           )}
@@ -130,18 +179,21 @@ export default function Home() {
             {result.verification.fields.map((field) => (
               <li key={field.field} className="verification-field">
                 <h3 className="font-semibold">{field.fieldName}</h3>
-                <p className="font-semibold">{statusLabels[field.status]}</p>
-                <p>{field.reason}</p>
+                <p className="font-semibold">Automated result: {statusLabels[field.status]}</p>
+                <p>Reason: {field.reason}</p>
                 <dl className="verification-values">
                   {field.applicationValue !== undefined && <><dt>Application value</dt><dd>{field.applicationValue}</dd></>}
                   <dt>Label value</dt><dd>{field.extractedValue ?? "Could not confidently read"}</dd>
                 </dl>
+                <FieldReview fieldName={field.fieldName} automatedStatus={field.status} decision={manualReviews[field.field]} onDecision={(decision) => dispatchReview({ type: "decide", field: field.field, decision })} />
               </li>
             ))}
             <li className="verification-field">
               <h3 className="font-semibold">Image Quality</h3>
-              <p className="font-semibold">{statusLabels[result.verification.imageQuality.status]}</p>
-              <p>{result.verification.imageQuality.reason}</p>
+              <p className="font-semibold">Automated result: {statusLabels[result.verification.imageQuality.status]}</p>
+              <p>Reason: {result.verification.imageQuality.reason}</p>
+              {result.verification.imageQuality.status === "needs_review" && <p>Accept only if you can independently read and confirm the required information. If evidence is unreadable or obscured, upload a clearer image.</p>}
+              <FieldReview fieldName="Image Quality" automatedStatus={result.verification.imageQuality.status} decision={manualReviews.imageQuality} onDecision={(decision) => dispatchReview({ type: "decide", field: "imageQuality", decision })} />
             </li>
           </ul>
         </section>
