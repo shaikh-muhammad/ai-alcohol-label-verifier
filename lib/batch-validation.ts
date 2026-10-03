@@ -70,6 +70,12 @@ const fields = {
   producerAddress: "producer_address", importedProduct: "imported_product", countryOfOrigin: "country_of_origin",
 } as const;
 
+export function batchApplicationData(row: BatchRow) {
+  return Object.fromEntries(Object.entries(fields).map(([field, column]) => [field,
+    field === "importedProduct" ? ["true", "yes", "1"].includes(row.imported_product.trim().toLowerCase()) : row[column],
+  ]));
+}
+
 export function validateBatch(csv: string | null, images: readonly BatchImage[]) {
   const parsed = csv === null ? { rows: [], errors: ["Choose one CSV file."] } : parseBatchCsv(csv);
   const errors = [...parsed.errors];
@@ -86,9 +92,7 @@ export function validateBatch(csv: string | null, images: readonly BatchImage[])
     if (!["true", "false", "yes", "no", "1", "0"].includes(booleanText)) {
       errors.push(`${label}: imported_product must be true/false, yes/no, or 1/0.`);
     }
-    const data = Object.fromEntries(Object.entries(fields).map(([field, column]) => [field,
-      field === "importedProduct" ? ["true", "yes", "1"].includes(booleanText) : row[column],
-    ]));
+    const data = batchApplicationData(row);
     const result = applicationSchema.safeParse(data);
     if (!result.success) for (const issue of result.error.issues) {
       const column = fields[issue.path[0] as keyof typeof fields];

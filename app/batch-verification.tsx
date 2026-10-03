@@ -1,7 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createCsvTemplate, validateBatch } from "../lib/batch-validation";
+
+import { createBatchQueue, prepareBatchQueue, type BatchQueueItem } from "../lib/batch-queue";
 
 function downloadTemplate() {
   const url = URL.createObjectURL(new Blob([createCsvTemplate()], { type: "text/csv;charset=utf-8" }));
@@ -18,9 +20,34 @@ export default function BatchVerification() {
   const [reading, setReading] = useState(false);
   const [fileError, setFileError] = useState("");
   const selection = useRef(0);
+  const preparation = useRef(0);
+  const [queue, setQueue] = useState<BatchQueueItem[]>([]);
+  const [preparing, setPreparing] = useState(false);
+  useEffect(() => () => { preparation.current += 1; }, []);
+
+  function clearQueue() {
+    preparation.current += 1;
+    setQueue([]);
+    setPreparing(false);
+  }
+
+  async function prepareBatch() {
+    if (preparing || reading || fileError || !validation.ready || csv === null) return;
+    const current = ++preparation.current;
+    const items = createBatchQueue(csv, images);
+    setQueue(items);
+    setPreparing(true);
+    try {
+      await prepareBatchQueue(items, setQueue, undefined, () => preparation.current === current);
+    } finally {
+      if (preparation.current === current) setPreparing(false);
+    }
+  }
+
   const validation = validateBatch(csv, images);
 
   async function selectCsv(file: File | undefined) {
+    clearQueue();
     const current = ++selection.current;
     setCsv(null);
     setFileError("");
@@ -52,15 +79,25 @@ export default function BatchVerification() {
     </div>
     <div className="form-field">
       <label htmlFor="batch-images">Label images (JPEG, PNG, WebP)</label>
-      <input id="batch-images" type="file" multiple accept="image/jpeg,image/png,image/webp" aria-describedby="batch-help" onChange={(event) => setImages(Array.from(event.target.files ?? []))} />
+      <input id="batch-images" type="file" multiple accept="image/jpeg,image/png,image/webp" aria-describedby="batch-help" onChange={(event) => { clearQueue(); setImages(Array.from(event.target.files ?? [])); }} />
       <p>{images.length} images selected. A new selection replaces the current images.</p>
     </div>
     <div role="status" aria-live="polite">
-      {reading ? <p>Reading CSV…</p> : validation.ready && !fileError ? <p className="font-semibold">Ready to process: {validation.rows.length} {validation.rows.length === 1 ? "label" : "labels"}</p> : <>
+      {reading ? <p>Reading CSV…</p> : validation.ready && !fileError ? <p className="font-semibold">Batch validation passed: {validation.rows.length} {validation.rows.length === 1 ? "label" : "labels"}</p> : <>
         <p className="font-semibold">Batch has problems that must be fixed.</p>
         <ul className="list-disc pl-6 break-words">{[fileError, ...validation.errors].filter(Boolean).map((error, index) => <li key={index}>{error}</li>)}</ul>
       </>}
     </div>
+    {!reading && !fileError && validation.ready && queue.length === 0 && <button type="button" className="remove-image-button" onClick={() => { void prepareBatch(); }}>Prepare Batch</button>}
+    {queue.length > 0 && <div role="status" aria-live="polite">
+      {preparing ? <p>Preparing images: {queue.filter((item) => item.status === "ready" || item.status === "error").length} / {queue.length}</p>
+        : queue.every((item) => item.status === "ready") ? <p>{queue.length} {queue.length === 1 ? "label" : "labels"} ready for verification</p>
+        : <p>Image preparation complete: {queue.filter((item) => item.status === "ready").length} ready, {queue.filter((item) => item.status === "error").length} errors. Replace the invalid images to prepare a new batch.</p>}
+      <ul>{queue.map((item) => <li key={item.filename} className="break-words">
+        {item.filename} — {item.status[0].toUpperCase() + item.status.slice(1)}
+        {item.error && <p>{item.error}</p>}
+      </li>)}</ul>
+    </div>}
     {!reading && !fileError && validation.ready && <div className="overflow-x-auto">
       <table className="w-full text-left">
         <caption className="mb-3 text-left">Batch preview — input validation only; no regulatory or AI results.</caption>
