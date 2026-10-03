@@ -1,0 +1,4 @@
+filename,beverage_type,brand_name,class_type,alcohol_content,net_contents,producer_name,producer_address,imported_product,country_of_origin
+bourbon-001.png,distilled_spirits,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,45% ABV,750 mL,Old Tom Distillery LLC,"123 Bourbon Lane, Lexington, KY 40507",false,
+bourbon-002.png,distilled_spirits,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,45% ABV,750 mL,Old Tom Distillery LLC,"123 Bourbon Lane, Lexington, KY 40507",false,
+bourbon-003.png,distilled_spirits,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,45% ABV,750 mL,Old Tom Distillery LLC,"123 Bourbon Lane, Lexington, KY 40507",false,

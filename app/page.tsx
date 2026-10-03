@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useReducer, useRef, useState, type FormEvent } from "react";
+import BatchVerification from "./batch-verification";
 import LabelImageUpload from "./label-image-upload";
 import { createVerificationRequest, requestLabelVerification, VerificationUiError, type VerifyLabelResponse } from "../lib/verify-label-client";
 import { finalReviewedStatus, manualReviewReducer, type ManualDecision, type ReviewStatus } from "../lib/manual-review";
@@ -44,6 +45,7 @@ function FieldReview({ fieldName, automatedStatus, decision, onDecision }: {
 }
 
 export default function Home() {
+  const [mode, setMode] = useState("single");
   const [isImported, setIsImported] = useState(false);
   const [processedImage, setProcessedImage] = useState<Blob | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -92,6 +94,16 @@ export default function Home() {
       <p className="text-lg leading-8 text-zinc-600 dark:text-zinc-400">
         AI-assisted prototype for reviewing alcohol beverage label information.
       </p>
+      <fieldset className="flex flex-wrap gap-4" disabled={isVerifying}>
+        <legend className="mb-2 font-semibold">Verification mode</legend>
+        {[["single", "Single Label Verification"], ["batch", "Batch Verification"]].map(([value, label]) => (
+          <label key={value} className="checkbox-field">
+            <input type="radio" name="verification-mode" value={value} checked={mode === value} onChange={() => setMode(value)} />
+            {label}
+          </label>
+        ))}
+      </fieldset>
+      <div hidden={mode !== "single"} className={mode === "single" ? "flex flex-col gap-6" : "hidden"}>
       <section aria-labelledby="single-label-heading">
         <h2 id="single-label-heading" className="text-2xl font-semibold">
           Single Label Verification
@@ -198,6 +210,8 @@ export default function Home() {
           </ul>
         </section>
       )}
+      </div>
+      <div hidden={mode !== "batch"}><BatchVerification /></div>
     </main>
   );
 }
