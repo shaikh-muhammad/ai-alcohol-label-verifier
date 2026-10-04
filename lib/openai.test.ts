@@ -4,11 +4,16 @@ import { labelExtractionSchema } from "./label-extraction-schema";
 import { extractionPrompt } from "./label-extraction-prompt";
 const { parse, createClient } = vi.hoisted(() => ({ parse: vi.fn(), createClient: vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("./gemini", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./gemini")>(), extractLabelFromImage: vi.fn(),
+}));
 vi.mock("openai", () => ({ default: class {
   constructor(options: unknown) { createClient(options); }
   responses = { parse };
 } }));
-import { extractLabelWithOpenAI } from "./openai";
+import { extractLabelWithOpenAI, OpenAIExtractionError } from "./openai";
+import { extractLabelFromImage } from "./gemini";
+import { extractLabelEvidence } from "./extract-label-evidence";
 const image = new Uint8Array([1, 2, 3]);
 const extraction = {
   brandName: "STONE'S THROW", classType: null, alcoholContent: "90 PROOF", netContents: "0.75 L",
@@ -52,6 +57,8 @@ describe("OpenAI extraction", () => {
   it("sanitizes SDK and client-construction failures", async () => {
     parse.mockRejectedValue(new Error("fake-test-key private billing details"));
     const error = await extractLabelWithOpenAI(image, "image/png").catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(OpenAIExtractionError);
+    expect(error).toMatchObject({ code: "OPENAI_REQUEST" });
     expect(String(error)).not.toContain("fake-test-key");
     expect(error).not.toHaveProperty("cause");
     createClient.mockImplementationOnce(() => { throw new Error("fake-test-key"); });
@@ -59,11 +66,38 @@ describe("OpenAI extraction", () => {
   });
   it("fails safely without a key before client creation", async () => {
     vi.stubEnv("OPENAI_API_KEY", undefined);
-    await expect(extractLabelWithOpenAI(image, "image/png")).rejects.toThrow("The image-reading service is unavailable.");
+    await expect(extractLabelWithOpenAI(image, "image/png")).rejects.toMatchObject({
+      code: "CONFIGURATION", message: "The image-reading service is unavailable.",
+    });
     expect(createClient).not.toHaveBeenCalled();
   });
   it("rejects empty images before making a request", async () => {
-    await expect(extractLabelWithOpenAI(new Uint8Array(), "image/png")).rejects.toThrow();
+    await expect(extractLabelWithOpenAI(new Uint8Array(), "image/png")).rejects.toMatchObject({ code: "INVALID_IMAGE" });
     expect(parse).not.toHaveBeenCalled();
   });
+
+  it.each(["provider rate limit", "malformed JSON", "schema-invalid output", "refusal"] as const)(
+    "falls back to Gemini through the real OpenAI helper after %s",
+    async (failure) => {
+      if (failure === "provider rate limit") {
+        parse.mockRejectedValue(Object.assign(new Error("private provider details"), { status: 429 }));
+      } else if (failure === "malformed JSON") {
+        // Run the actual Zod format parser, as responses.parse does for output text.
+        parse.mockImplementation(async (request) => ({
+          status: "completed", output_parsed: request.text.format.$parseRaw("{invalid JSON"),
+        }));
+      } else {
+        parse.mockResolvedValue({
+          status: "completed",
+          output_parsed: failure === "refusal" ? null : { ...extraction, brandName: 42 },
+        });
+      }
+      const fallback = labelExtractionSchema.parse({ ...extraction, brandName: "Gemini fallback" });
+      vi.mocked(extractLabelFromImage).mockResolvedValue(fallback);
+      expect(await extractLabelEvidence(image, "image/png")).toEqual(fallback);
+      expect(parse).toHaveBeenCalledTimes(1);
+      expect(extractLabelFromImage).toHaveBeenCalledExactlyOnceWith(image, "image/png");
+      expect(parse.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(extractLabelFromImage).mock.invocationCallOrder[0]);
+    },
+  );
 });

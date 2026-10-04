@@ -2,7 +2,7 @@
 
 A standalone prototype for verifying alcohol beverage labels against application data. It supports single-label review and batch processing with a CSV and multiple images.
 
-**AI extracts evidence. Deterministic code makes compliance decisions.** Gemini is the primary extraction provider. OpenAI is a fallback only when Gemini is unavailable, quota/rate-limited, or cannot return valid structured extraction. Both providers read visible label text and visual evidence; neither decides compliance or infers missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
+**AI extracts evidence. Deterministic code makes compliance decisions.** OpenAI is the primary extraction provider. Gemini is a fallback only when OpenAI is unavailable, quota/rate-limited, or cannot return valid structured extraction. Both providers read visible label text and visual evidence; neither decides compliance or infers missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
 
 Source Code: https://github.com/shaikh-muhammad/ai-alcohol-label-verifier
 
@@ -12,7 +12,7 @@ Live Demo: https://ai-alcohol-label-verifier-tau.vercel.app
 
 1. Enter application data and upload a label image.
 2. The browser resizes and compresses the image, then sends it with the application data to this application's own Next.js API route.
-3. The server tries Gemini Flash first, then OpenAI only on provider/extraction failure. Both extract evidence only, using the same Zod schema. Regulatory Fail or Needs Review results never trigger fallback.
+3. The server tries OpenAI first, then Gemini Flash only on provider/extraction failure. Both extract evidence only, using the same Zod schema. Regulatory Fail or Needs Review results never trigger fallback.
 4. Deterministic TypeScript rules compare the extraction with the application and validate the warning and image quality.
 5. The UI displays Pass, Needs Review, or Fail. A human reviewer may manually override a field result with a review note; the automated result remains visible.
 
@@ -21,7 +21,7 @@ Browser (application data + prepared image)
   ↓
 Next.js /api/verify
   ↓
-Gemini Flash → OpenAI only on extraction/service failure
+OpenAI → Gemini Flash only on extraction/service failure
   ↓
 Structured extraction
   ↓
@@ -42,8 +42,8 @@ max 2 concurrent /api/verify requests
 
 - **Next.js, React, TypeScript:** application UI, server route, and comparison rules.
 - **Zod:** application-data and extraction-schema validation.
-- **Google Gemini via `@google/genai`:** server-side vision extraction.
-- **OpenAI via the official `openai` SDK:** fallback vision extraction using the Responses API.
+- **Google Gemini via `@google/genai`:** fallback server-side vision extraction.
+- **OpenAI via the official `openai` SDK:** primary vision extraction using the Responses API.
 - **Vitest:** automated tests.
 - **GitHub:** source control and repository review.
 - **Vercel:** deployment target.
@@ -77,7 +77,7 @@ Use the UI's downloadable CSV template. Beverage values are `distilled-spirits`,
 
 ## Run locally
 
-Prerequisites: Node.js 20.9 or newer, npm, Git, and a Gemini API key with access to the configured model.
+Prerequisites: Node.js 20.9 or newer, npm, Git, and an OpenAI API key with access to the configured model.
 
 1. Clone this repository using its GitHub URL and enter the project folder:
 
@@ -98,7 +98,7 @@ Prerequisites: Node.js 20.9 or newer, npm, Git, and a Gemini API key with access
    cp .env.example .env.local
    ```
 
-4. Open `.env.local` and replace the placeholder for `GEMINI_API_KEY` with your own key. Optionally set `GEMINI_MODEL` to a model available to your account. Configure `OPENAI_API_KEY` to enable fallback and optionally set `OPENAI_MODEL`.
+4. Open `.env.local` and replace the placeholder for `OPENAI_API_KEY` with your own key. Optionally set `OPENAI_MODEL` to a model available to your account. Configure `GEMINI_API_KEY` to enable fallback and optionally set `GEMINI_MODEL`.
 5. Start the development server:
 
    ```bash
@@ -111,10 +111,10 @@ Prerequisites: Node.js 20.9 or newer, npm, Git, and a Gemini API key with access
 
 | Variable | Purpose |
 | --- | --- |
-| `GEMINI_API_KEY` | Required server-side Gemini API credential. Never commit a real key. |
+| `GEMINI_API_KEY` | Server-side Gemini fallback credential. Never commit a real key. |
 | `GEMINI_MODEL` | Optional model identifier. The current code and `.env.example` default to `gemini-3.8-flash`; model access depends on your account. |
-| `OPENAI_API_KEY` | Server-side fallback credential. Gemini success does not require it; without it, Gemini failure returns a friendly service error. |
-| `OPENAI_MODEL` | Optional fallback model identifier; defaults to `gpt-5.4-mini`. |
+| `OPENAI_API_KEY` | Server-side primary credential. If missing, the server tries Gemini; if both providers fail, it returns a friendly service error. |
+| `OPENAI_MODEL` | Optional primary model identifier; defaults to `gpt-5.4-mini`. |
 
 ## Tests and checks
 
@@ -140,7 +140,7 @@ For a quick evaluation, run the automated checks, try single-label verification 
 
 The stakeholder target is approximately **5 seconds per single label**. Observed local test examples were approximately **1.5 seconds, 2.4 seconds, and 3.7 seconds**. These are illustrative observations, not a guarantee that every request finishes within five seconds. Image preparation, network conditions, model latency, and retries affect timing.
 
-Batch throughput can be slower because of Gemini free-tier quotas, rate limits, and retries, even with two concurrent requests.
+Batch throughput can be slower because of provider quotas, rate limits, and retries, even with two concurrent requests.
 
 ## Security and privacy
 
@@ -154,9 +154,9 @@ Batch throughput can be slower because of Gemini free-tier quotas, rate limits, 
 
 The Gemini free developer tier may use submitted content to improve Google products. Google's [Gemini API terms](https://ai.google.dev/gemini-api/terms) describe unpaid-service data use, including possible human review. Use only synthetic/fake labels for this prototype; do not upload sensitive government or personal information.
 
-### OpenAI fallback privacy
+### OpenAI privacy
 
-When fallback runs, the label image is also sent to OpenAI. Requests use `store: false`; this does not override OpenAI’s applicable data-use and retention policies. Continue using synthetic/fake labels only.
+The label image is sent to OpenAI first, and to Gemini if OpenAI extraction fails. OpenAI requests use `store: false`; this does not override OpenAI’s applicable data-use and retention policies. Continue using synthetic/fake labels only.
 
 ### Production and government deployment
 
@@ -193,4 +193,4 @@ Keep credentials server-side; never expose secrets through `NEXT_PUBLIC_` variab
 
 ## Tools and assumptions
 
-Codex was used as an AI-assisted development tool. The application runtime uses Gemini Flash as primary and OpenAI as fallback for evidence extraction and TypeScript for deterministic decisions. The prototype assumes synthetic test data, readable label images, and a human reviewer responsible for interpreting results.
+Codex was used as an AI-assisted development tool. The application runtime uses OpenAI as primary and Gemini Flash as fallback for evidence extraction and TypeScript for deterministic decisions. The prototype assumes synthetic test data, readable label images, and a human reviewer responsible for interpreting results.

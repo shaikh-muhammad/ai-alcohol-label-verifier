@@ -1,8 +1,8 @@
 import "server-only";
 
-import { extractLabelFromImage, LabelExtractionError, type LabelImageMimeType } from "./gemini";
+import { extractLabelFromImage, type LabelImageMimeType } from "./gemini";
 import type { LabelExtraction } from "./label-extraction-schema";
-import { extractLabelWithOpenAI } from "./openai";
+import { extractLabelWithOpenAI, OpenAIExtractionError } from "./openai";
 
 export class LabelEvidenceServiceError extends Error {
   constructor() {
@@ -11,23 +11,19 @@ export class LabelEvidenceServiceError extends Error {
   }
 }
 
-const fallbackCodes = new Set<LabelExtractionError["code"]>([
-  "CONFIGURATION", "RATE_LIMIT", "GEMINI_REQUEST", "EMPTY_RESPONSE", "INVALID_JSON", "INVALID_EXTRACTION",
-]);
-
-/** Gemini first; provider failures only. Compliance evaluation happens later. */
+/** OpenAI first; provider failures only. Compliance evaluation happens later. */
 export async function extractLabelEvidence(
   imageBytes: Uint8Array,
   mimeType: LabelImageMimeType,
 ): Promise<LabelExtraction> {
   try {
-    const extraction = await extractLabelFromImage(imageBytes, mimeType);
+    const extraction = await extractLabelWithOpenAI(imageBytes, mimeType);
     return extraction;
   } catch (error: unknown) {
-    if (!(error instanceof LabelExtractionError) || !fallbackCodes.has(error.code)) throw error;
+    if (!(error instanceof OpenAIExtractionError) || error.code === "INVALID_IMAGE") throw error;
   }
   try {
-    const extraction = await extractLabelWithOpenAI(imageBytes, mimeType);
+    const extraction = await extractLabelFromImage(imageBytes, mimeType);
     return extraction;
   } catch {
     throw new LabelEvidenceServiceError();

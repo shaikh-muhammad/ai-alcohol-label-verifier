@@ -7,19 +7,26 @@ import type { LabelImageMimeType } from "./gemini";
 import { extractionPrompt } from "./label-extraction-prompt";
 import { labelExtractionSchema, type LabelExtraction } from "./label-extraction-schema";
 
-/** Fallback evidence extraction only; never makes compliance decisions. */
+export class OpenAIExtractionError extends Error {
+  constructor(public readonly code: "CONFIGURATION" | "INVALID_IMAGE" | "OPENAI_REQUEST", message: string) {
+    super(message);
+    this.name = "OpenAIExtractionError";
+  }
+}
+
+/** Primary evidence extraction only; never makes compliance decisions. */
 export async function extractLabelWithOpenAI(
   imageBytes: Uint8Array,
   mimeType: LabelImageMimeType,
 ): Promise<LabelExtraction> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey?.trim()) throw new Error("The image-reading service is unavailable.");
+  if (!apiKey?.trim()) throw new OpenAIExtractionError("CONFIGURATION", "The image-reading service is unavailable.");
   if (!(imageBytes instanceof Uint8Array) || imageBytes.byteLength === 0 ||
       !["image/jpeg", "image/png", "image/webp"].includes(mimeType)) {
-    throw new Error("Provide nonempty image bytes and a supported image MIME type.");
+    throw new OpenAIExtractionError("INVALID_IMAGE", "Provide nonempty image bytes and a supported image MIME type.");
   }
   try {
-    // Lazy construction keeps a missing fallback key from affecting Gemini success.
+    // Construct server-side at request time so configuration failures can fall back.
     const client = new OpenAI({ apiKey, timeout: 60_000, maxRetries: 2 });
     const response = await client.responses.parse({
       model: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
@@ -37,6 +44,6 @@ export async function extractLabelWithOpenAI(
     return labelExtractionSchema.parse(response.output_parsed);
   } catch {
     // Never retain SDK messages, provider responses, or causes.
-    throw new Error("The image-reading service could not extract label evidence.");
+    throw new OpenAIExtractionError("OPENAI_REQUEST", "The image-reading service could not extract label evidence.");
   }
 }
