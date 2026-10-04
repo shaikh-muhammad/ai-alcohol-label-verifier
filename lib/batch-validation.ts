@@ -7,10 +7,13 @@ export const CSV_COLUMNS = [
 export type BatchRow = Record<(typeof CSV_COLUMNS)[number], string>;
 export type BatchImage = { name: string; type: string };
 
+export function escapeCsvValue(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
 export function createCsvTemplate(): string {
   const example = ["old-tom.jpg", "distilled-spirits", "OLD TOM", "Straight Bourbon", "45% ABV", "750 mL", "Old Tom Distillery", "123 Example Street, Louisville, KY", "false", ""];
-  const escape = (value: string) => /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
-  return `${CSV_COLUMNS.join(",")}\r\n${example.map(escape).join(",")}\r\n`;
+  return `${CSV_COLUMNS.join(",")}\r\n${example.map(escapeCsvValue).join(",")}\r\n`;
 }
 
 /** Fixed-template CSV reader: quoted cells, escaped quotes, BOM, and CRLF supported. */

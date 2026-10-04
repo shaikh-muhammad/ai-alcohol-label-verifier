@@ -2,14 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createCsvTemplate, validateBatch } from "../lib/batch-validation";
+import { createBatchResultsCsv, RESULTS_CSV_FILENAME } from "../lib/batch-results-csv";
 
 import { createBatchQueue, prepareBatchQueue, createBatchVerificationRunner, type BatchQueueItem } from "../lib/batch-queue";
 
 function downloadTemplate() {
-  const url = URL.createObjectURL(new Blob([createCsvTemplate()], { type: "text/csv;charset=utf-8" }));
+  downloadCsv(createCsvTemplate(), "label-verification-template.csv");
+}
+
+function downloadCsv(csv: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = "label-verification-template.csv";
+  link.download = filename;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
@@ -116,6 +121,7 @@ export default function BatchVerification() {
       <p>{["queued", "checking", "waiting", "done", "error"].map((status) => `${status[0].toUpperCase() + status.slice(1)}: ${queue.filter((item) => item.status === status).length}`).join(" · ")}</p>
       {!processing && <p>{queue.filter((item) => item.status === "done").length} processed · {queue.filter((item) => item.result?.verification.overall.status === "pass").length} Pass · {queue.filter((item) => item.result?.verification.overall.status === "needs_review").length} Needs Review · {queue.filter((item) => item.result?.verification.overall.status === "fail").length} Fail · {queue.filter((item) => item.status === "error").length} Errors</p>}
     </div>}
+    {started && !processing && queue.some((item) => item.status === "done" || item.status === "error") && <button type="button" className="remove-image-button" onClick={() => downloadCsv(createBatchResultsCsv(queue), RESULTS_CSV_FILENAME)}>Download Results CSV</button>}
     {queue.length > 0 && <div role="status" aria-live="polite">
       {started ? null : preparing ? <p>Preparing images: {queue.filter((item) => item.status === "ready" || item.status === "error").length} / {queue.length}</p>
         : queue.every((item) => item.status === "ready") ? <p>{queue.length} {queue.length === 1 ? "label" : "labels"} ready for verification</p>
