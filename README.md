@@ -4,6 +4,8 @@ A standalone prototype for verifying alcohol beverage labels against application
 
 **AI extracts evidence. Deterministic code makes compliance decisions.** Gemini reads visible label text and visual evidence; it does not decide compliance or infer missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
 
+Source Code: https://github.com/shaikh-muhammad/ai-alcohol-label-verifier
+
 Live Demo: https://ai-alcohol-label-verifier-tau.vercel.app
 
 ## Workflow and architecture
@@ -79,8 +81,8 @@ Prerequisites: Node.js 20.9 or newer, npm, Git, and a Gemini API key with access
 1. Clone this repository using its GitHub URL and enter the project folder:
 
    ```bash
-   git clone <repository-url>
-   cd label-verifier
+   git clone https://github.com/shaikh-muhammad/ai-alcohol-label-verifier.git
+   cd ai-alcohol-label-verifier
    ```
 
 2. Install dependencies:
@@ -178,7 +180,7 @@ A production federal deployment would require an appropriately approved governme
 1. Import the GitHub repository into Vercel as a Next.js project.
 2. Configure `GEMINI_API_KEY` and `GEMINI_MODEL` in the project's environment variables for the intended deployment environments.
 3. Deploy, or redeploy after adding or changing environment variables.
-4. Replace the Live Demo placeholder above with the deployed Vercel URL.
+4. Confirm the Live Demo URL above points to the production deployment.
 
 Keep credentials server-side; never expose secrets through `NEXT_PUBLIC_` variables.
 
