@@ -90,6 +90,27 @@ describe("evaluateVerification", () => {
     expect(result.overall.status).toBe("pass");
   });
 
+  it.each([
+    ["PRODUCT OF CANADA", "pass"],
+    ["Product of Canada", "pass"],
+    ["PRODUCT OF MEXICO", "fail"],
+    ["Mexico", "fail"],
+    ["PRODUCT OF unknown", "needs_review"],
+  ])("evaluates imported origin %s as %s", (countryOfOrigin, status) => {
+    const result = evaluateVerification(
+      { ...application, importedProduct: true, countryOfOrigin: "Canada" },
+      { ...label, countryOfOrigin, alcoholContent: "45% ABV (90 Proof)" },
+    );
+    expect(result.fields.find((field) => field.field === "countryOfOrigin")?.status).toBe(status);
+    expect(result.overall.status).toBe(status);
+  });
+
+  it("needs review for conflicting combined ABV and proof", () => {
+    const result = evaluateVerification(application, { ...label, alcoholContent: "45% ABV (80 Proof)" });
+    expect(result.fields.find((field) => field.field === "alcoholContent")?.status).toBe("needs_review");
+    expect(result.overall.status).toBe("needs_review");
+  });
+
   it("fails a wrong country for an imported product", () => {
     const result = evaluateVerification(
       { ...application, importedProduct: true, countryOfOrigin: "Canada" },
@@ -99,13 +120,13 @@ describe("evaluateVerification", () => {
     expect(result.overall.status).toBe("fail");
   });
 
-  it("needs review for a normalized country match", () => {
+  it("passes a normalized country match", () => {
     const result = evaluateVerification(
       { ...application, importedProduct: true, countryOfOrigin: "Canada" },
       { ...label, countryOfOrigin: "CANADA" },
     );
-    expect(result.fields.find((field) => field.field === "countryOfOrigin")?.status).toBe("needs_review");
-    expect(result.overall.status).toBe("needs_review");
+    expect(result.fields.find((field) => field.field === "countryOfOrigin")?.status).toBe("pass");
+    expect(result.overall.status).toBe("pass");
   });
 
   it.each([undefined, null, "", " \n "])("needs review for an unreadable imported country: %s", (value) => {

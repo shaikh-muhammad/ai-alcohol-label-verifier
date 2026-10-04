@@ -34,6 +34,36 @@ export function compareText(application: string, label: string): ComparisonResul
   return { status: "fail", reason: "The text values differ even after normalization." };
 }
 
+// Use built-in English region names to avoid treating arbitrary phrases as countries.
+const countryNames = new Set<string>();
+const regionNames = new Intl.DisplayNames(["en"], { type: "region", fallback: "none" });
+for (let first = 65; first <= 90; first++) {
+  for (let second = 65; second <= 90; second++) {
+    const name = regionNames.of(String.fromCharCode(first, second));
+    if (name) countryNames.add(name.toLowerCase());
+  }
+}
+
+function normalizeCountryOfOrigin(text: string): string | null {
+  const country = text.trim().toLowerCase().replace(/\s+/g, " ").replace(/^product of /, "");
+  return countryNames.has(country) ? country : null;
+}
+
+export function compareCountryOfOrigin(application: string, label: string): ComparisonResult {
+  const applicationCountry = normalizeCountryOfOrigin(application);
+  const labelCountry = normalizeCountryOfOrigin(label);
+  if (applicationCountry === null || labelCountry === null) {
+    return {
+      status: "needs_review",
+      reason: "One or both country-of-origin values could not be interpreted as a country name or PRODUCT OF a country. Please review them.",
+    };
+  }
+  if (applicationCountry === labelCountry) {
+    return { status: "pass", reason: "Both country-of-origin values identify the same country." };
+  }
+  return { status: "fail", reason: "The country-of-origin values identify different countries." };
+}
+
 export function compareVolume(application: string, label: string): ComparisonResult {
   const applicationVolume = normalizeVolume(application);
   const labelVolume = normalizeVolume(label);

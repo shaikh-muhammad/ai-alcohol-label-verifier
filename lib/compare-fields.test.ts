@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   compareText,
+  compareCountryOfOrigin,
   compareVolume,
   compareAlcoholContent,
   compareGovernmentWarning,
@@ -74,6 +75,8 @@ describe("compareAlcoholContent", () => {
   it.each([
     ["45% ABV", "45% ABV", "pass"],
     ["45% ABV", "90 proof", "pass"],
+    ["45% ABV", "45% ABV (90 Proof)", "pass"],
+    ["45% ABV", "45% ABV (80 Proof)", "needs_review"],
     ["40% ABV", "80 proof", "pass"],
     ["45% ABV", "80 proof", "fail"],
     ["45% ABV", "strong", "needs_review"],
@@ -111,5 +114,31 @@ describe("compareGovernmentWarning", () => {
     const result = compareGovernmentWarning(text);
     expect(result.status).toBe(status);
     expect(result.reason).toBe(validateGovernmentWarning(text).reason);
+  });
+});
+
+describe("compareCountryOfOrigin", () => {
+  it.each([
+    ["Canada", "Canada", "pass"],
+    ["Canada", "PRODUCT OF CANADA", "pass"],
+    ["Canada", "Product of Canada", "pass"],
+    [" Canada ", " product  OF\tCANADA ", "pass"],
+    ["Canada", "PRODUCT OF MEXICO", "fail"],
+    ["Canada", "Mexico", "fail"],
+    ["Canada", "PRODUCT OF", "needs_review"],
+    ["Canada", "PRODUCT OF CANADA OR MEXICO", "needs_review"],
+    ["Canada", "unknown", "needs_review"],
+    ["Canada", "Made in Canada", "needs_review"],
+    ["Canada", "", "needs_review"],
+    ["", "Canada", "needs_review"],
+    ["unknown", "unknown", "needs_review"],
+  ])("compares %s with %s as %s", (application, label, status) => {
+    const result = compareCountryOfOrigin(application, label);
+    expect(result.status).toBe(status);
+    expect(result.reason.length).toBeGreaterThan(0);
+  });
+
+  it("keeps generic text comparison strict", () => {
+    expect(compareText("Canada", "PRODUCT OF CANADA").status).toBe("fail");
   });
 });

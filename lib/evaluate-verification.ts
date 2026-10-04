@@ -1,5 +1,6 @@
 import {
   compareText,
+  compareCountryOfOrigin,
   compareVolume,
   compareAlcoholContent,
   compareGovernmentWarning,
@@ -103,7 +104,7 @@ export function evaluateVerification(
   addField("producerAddress", "Producer / Bottler Address", application.producerAddress);
 
   if (application.importedProduct) {
-    addField("countryOfOrigin", "Country of Origin", application.countryOfOrigin ?? "");
+    addField("countryOfOrigin", "Country of Origin", application.countryOfOrigin ?? "", compareCountryOfOrigin);
   }
 
   fields.push({

@@ -4,6 +4,13 @@ import { normalizeAlcoholContent } from "./normalize-alcohol-content";
 describe("normalizeAlcoholContent", () => {
   it.each([
     ["45% ABV", 45],
+    ["45% ABV (90 Proof)", 45],
+    ["45% Alc./Vol. (90 Proof)", 45],
+    ["45% Alc/Vol (90 Proof)", 45],
+    ["40% ABV (80 Proof)", 40],
+    [" 45 % aBv  ( 90   pROOF ) ", 45],
+    ["45%ALC. / VOL.(90proof)", 45],
+    ["37.7% ABV (75.4 Proof)", 37.7],
     ["45% Alc./Vol.", 45],
     ["45% Alc/Vol", 45],
     ["45% Alcohol by Volume", 45],
@@ -43,12 +50,18 @@ describe("normalizeAlcoholContent", () => {
     (beverageType) => {
       expect(normalizeAlcoholContent("12.5% ABV", beverageType)).toBe(12.5);
       expect(normalizeAlcoholContent("40 percent alcohol by volume", beverageType)).toBe(40);
+      expect(normalizeAlcoholContent("45% ABV (90 Proof)", beverageType)).toBeNull();
       expect(normalizeAlcoholContent("90 proof", beverageType)).toBeNull();
       expect(normalizeAlcoholContent("80 Proof", beverageType)).toBeNull();
     },
   );
 
   it.each([
+    "45% ABV (80 Proof)",
+    "45% ABV (90.01 Proof)",
+    "101% ABV (202 Proof)",
+    "45% ABV (90 Proof) extra",
+    "45% ABV (90 Proof) (80 Proof)",
     "strong",
     "high alcohol",
     "45",
