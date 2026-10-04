@@ -4,7 +4,7 @@ A standalone prototype for verifying alcohol beverage labels against application
 
 **AI extracts evidence. Deterministic code makes compliance decisions.** Gemini reads visible label text and visual evidence; it does not decide compliance or infer missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
 
-Live Demo: [add deployed Vercel URL]
+Live Demo: https://ai-alcohol-label-verifier-tau.vercel.app
 
 ## Workflow and architecture
 
