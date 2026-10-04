@@ -31,7 +31,7 @@ describe("OpenAI extraction", () => {
   afterEach(() => vi.unstubAllEnvs());
   it.each(["image/jpeg", "image/png", "image/webp"] as const)("uses Responses structured outputs and a %s data URL", async (mimeType) => {
     expect(await extractLabelWithOpenAI(image, mimeType)).toEqual(labelExtractionSchema.parse(extraction));
-    expect(createClient).toHaveBeenCalledExactlyOnceWith({ apiKey: "fake-test-key", timeout: 60_000, maxRetries: 2 });
+    expect(createClient).toHaveBeenCalledExactlyOnceWith({ apiKey: "fake-test-key", timeout: 5_000, maxRetries: 0 });
     const request = parse.mock.calls[0][0];
     expect(request).toMatchObject({ model: "gpt-5.4-mini", store: false, instructions: extractionPrompt,
       input: [{ role: "user", content: [{ type: "input_image", image_url: `data:${mimeType};base64,AQID`, detail: "auto" }] }],

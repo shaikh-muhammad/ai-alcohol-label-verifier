@@ -27,7 +27,7 @@ export async function extractLabelWithOpenAI(
   }
   try {
     // Construct server-side at request time so configuration failures can fall back.
-    const client = new OpenAI({ apiKey, timeout: 60_000, maxRetries: 2 });
+    const client = new OpenAI({ apiKey, timeout: 5_000, maxRetries: 0 });
     const response = await client.responses.parse({
       model: process.env.OPENAI_MODEL ?? "gpt-5.4-mini",
       store: false,
