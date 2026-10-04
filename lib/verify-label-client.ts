@@ -25,7 +25,9 @@ const responseSchema = z.object({
 });
 export type VerifyLabelResponse = z.infer<typeof responseSchema>;
 
-export class VerificationUiError extends Error {}
+export class VerificationUiError extends Error {
+  constructor(message: string, public readonly retryable = false) { super(message); }
+}
 
 export function createVerificationRequest(form: FormData, processedImage: Blob | null): FormData {
   const application = applicationSchema.safeParse({
@@ -74,11 +76,16 @@ export async function requestLabelVerification(body: FormData): Promise<VerifyLa
   let data: unknown;
   try {
     response = await fetch("/api/verify", { method: "POST", body });
-    data = await response.json();
   } catch {
-    throw new VerificationUiError(genericError);
+    throw new VerificationUiError(genericError, true);
   }
-  if (!response.ok) throw new VerificationUiError(verificationErrorMessage(response.status, data));
+  try {
+    data = await response.json();
+  } catch (error) {
+    if (error instanceof TypeError) throw new VerificationUiError(genericError, true);
+    data = null;
+  }
+  if (!response.ok) throw new VerificationUiError(verificationErrorMessage(response.status, data), [429, 502, 503, 504].includes(response.status));
   const result = responseSchema.safeParse(data);
   if (!result.success) throw new VerificationUiError(genericError);
   return result.data;
