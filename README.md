@@ -2,7 +2,7 @@
 
 A standalone prototype for verifying alcohol beverage labels against application data. It supports single-label review and batch processing with a CSV and multiple images.
 
-**AI extracts evidence. Deterministic code makes compliance decisions.** Gemini reads visible label text and visual evidence; it does not decide compliance or infer missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
+**AI extracts evidence. Deterministic code makes compliance decisions.** Gemini is the primary extraction provider. OpenAI is a fallback only when Gemini is unavailable, quota/rate-limited, or cannot return valid structured extraction. Both providers read visible label text and visual evidence; neither decides compliance or infers missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
 
 Source Code: https://github.com/shaikh-muhammad/ai-alcohol-label-verifier
 
@@ -12,7 +12,7 @@ Live Demo: https://ai-alcohol-label-verifier-tau.vercel.app
 
 1. Enter application data and upload a label image.
 2. The browser resizes and compresses the image, then sends it with the application data to this application's own Next.js API route.
-3. The server calls Gemini Flash vision to extract visible evidence only and validates the structured response with Zod.
+3. The server tries Gemini Flash first, then OpenAI only on provider/extraction failure. Both extract evidence only, using the same Zod schema. Regulatory Fail or Needs Review results never trigger fallback.
 4. Deterministic TypeScript rules compare the extraction with the application and validate the warning and image quality.
 5. The UI displays Pass, Needs Review, or Fail. A human reviewer may manually override a field result with a review note; the automated result remains visible.
 
@@ -21,7 +21,7 @@ Browser (application data + prepared image)
   ↓
 Next.js /api/verify
   ↓
-Gemini Flash
+Gemini Flash → OpenAI only on extraction/service failure
   ↓
 Structured extraction
   ↓
@@ -43,6 +43,7 @@ max 2 concurrent /api/verify requests
 - **Next.js, React, TypeScript:** application UI, server route, and comparison rules.
 - **Zod:** application-data and extraction-schema validation.
 - **Google Gemini via `@google/genai`:** server-side vision extraction.
+- **OpenAI via the official `openai` SDK:** fallback vision extraction using the Responses API.
 - **Vitest:** automated tests.
 - **GitHub:** source control and repository review.
 - **Vercel:** deployment target.
@@ -97,7 +98,7 @@ Prerequisites: Node.js 20.9 or newer, npm, Git, and a Gemini API key with access
    cp .env.example .env.local
    ```
 
-4. Open `.env.local` and replace the placeholder for `GEMINI_API_KEY` with your own key. Optionally set `GEMINI_MODEL` to a model available to your account.
+4. Open `.env.local` and replace the placeholder for `GEMINI_API_KEY` with your own key. Optionally set `GEMINI_MODEL` to a model available to your account. Configure `OPENAI_API_KEY` to enable fallback and optionally set `OPENAI_MODEL`.
 5. Start the development server:
 
    ```bash
@@ -112,6 +113,8 @@ Prerequisites: Node.js 20.9 or newer, npm, Git, and a Gemini API key with access
 | --- | --- |
 | `GEMINI_API_KEY` | Required server-side Gemini API credential. Never commit a real key. |
 | `GEMINI_MODEL` | Optional model identifier. The current code and `.env.example` default to `gemini-3.8-flash`; model access depends on your account. |
+| `OPENAI_API_KEY` | Server-side fallback credential. Gemini success does not require it; without it, Gemini failure returns a friendly service error. |
+| `OPENAI_MODEL` | Optional fallback model identifier; defaults to `gpt-5.4-mini`. |
 
 ## Tests and checks
 
@@ -121,7 +124,7 @@ npm run lint
 npm run build
 ```
 
-The repository has **500+ automated tests** covering deterministic comparisons, government-warning validation, schemas, API validation, image preparation, retry behavior, manual review helpers, and batch validation, queueing, and CSV export. Automated tests mock Gemini and do not make real Gemini calls. Manual UI verification requires a configured API key and consumes API quota.
+The repository has **500+ automated tests** covering deterministic comparisons, government-warning validation, schemas, API validation, image preparation, retry behavior, manual review helpers, and batch validation, queueing, and CSV export. Automated tests mock both providers and do not make real provider calls. Manual UI verification requires a configured API key and consumes API quota.
 
 The production build uses Next.js/Turbopack. It needs an environment that permits its local worker processes and port binding. The application uses system fonts and has no external font dependency or build-time font downloads.
 
@@ -142,14 +145,18 @@ Batch throughput can be slower because of Gemini free-tier quotas, rate limits, 
 ## Security and privacy
 
 - Standalone prototype only: no database and no intentional persistent storage. Images, application data, extracted evidence, and review state are processed in memory by the application. Downloaded results are saved only when the user requests an export.
-- The browser calls only this application's own API route for verification. Gemini calls happen server-side; only the label image and extraction instructions are sent to Gemini, not the entered application data.
-- `GEMINI_API_KEY` is never exposed to browser code. `.env.local` is ignored by Git. Do not use `NEXT_PUBLIC_` variables for secrets.
+- The browser calls only this application's own API route for verification. Both provider calls happen server-side; only the label image and extraction instructions are sent to the selected provider, not the entered application data.
+- `GEMINI_API_KEY` and `OPENAI_API_KEY` are never exposed to browser code. `.env.local` is ignored by Git. Do not use `NEXT_PUBLIC_` variables for secrets.
 - No application analytics or external browser-loaded fonts, scripts, or CDNs. The application uses system fonts and has no external font dependency.
 - **Use synthetic/fake labels only.** Application memory-only processing does not override Google's data-use terms or hosting-provider policies.
 
 ### Gemini free developer tier
 
 The Gemini free developer tier may use submitted content to improve Google products. Google's [Gemini API terms](https://ai.google.dev/gemini-api/terms) describe unpaid-service data use, including possible human review. Use only synthetic/fake labels for this prototype; do not upload sensitive government or personal information.
+
+### OpenAI fallback privacy
+
+When fallback runs, the label image is also sent to OpenAI. Requests use `store: false`; this does not override OpenAI’s applicable data-use and retention policies. Continue using synthetic/fake labels only.
 
 ### Production and government deployment
 
@@ -178,7 +185,7 @@ A production federal deployment would require an appropriately approved governme
 ## Deploy with Vercel
 
 1. Import the GitHub repository into Vercel as a Next.js project.
-2. Configure `GEMINI_API_KEY` and `GEMINI_MODEL` in the project's environment variables for the intended deployment environments.
+2. Configure `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` in the project's environment variables for the intended deployment environments.
 3. Deploy, or redeploy after adding or changing environment variables.
 4. Confirm the Live Demo URL above points to the production deployment.
 
@@ -186,4 +193,4 @@ Keep credentials server-side; never expose secrets through `NEXT_PUBLIC_` variab
 
 ## Tools and assumptions
 
-Codex was used as an AI-assisted development tool. The application runtime uses Gemini Flash for evidence extraction and TypeScript for deterministic decisions. The prototype assumes synthetic test data, readable label images, and a human reviewer responsible for interpreting results.
+Codex was used as an AI-assisted development tool. The application runtime uses Gemini Flash as primary and OpenAI as fallback for evidence extraction and TypeScript for deterministic decisions. The prototype assumes synthetic test data, readable label images, and a human reviewer responsible for interpreting results.

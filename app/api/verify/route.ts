@@ -1,6 +1,7 @@
 import { applicationSchema } from "../../../lib/application-schema";
 import { evaluateVerification } from "../../../lib/evaluate-verification";
-import { extractLabelFromImage, LabelExtractionError, type LabelImageMimeType } from "../../../lib/gemini";
+import { LabelExtractionError, type LabelImageMimeType } from "../../../lib/gemini";
+import { extractLabelEvidence } from "../../../lib/extract-label-evidence";
 import { labelExtractionSchema } from "../../../lib/label-extraction-schema";
 
 export const runtime = "nodejs";
@@ -72,7 +73,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const extracted = await extractLabelFromImage(bytes, image.type as LabelImageMimeType);
+    const extracted = await extractLabelEvidence(bytes, image.type as LabelImageMimeType);
     // The helper already validates; keep the endpoint boundary validated too.
     const extraction = labelExtractionSchema.safeParse(extracted);
     if (!extraction.success) {

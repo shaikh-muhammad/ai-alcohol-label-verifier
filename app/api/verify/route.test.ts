@@ -4,15 +4,16 @@ import { evaluateVerification, type ApplicationData } from "../../../lib/evaluat
 import { REQUIRED_GOVERNMENT_WARNING } from "../../../lib/validate-government-warning";
 
 vi.mock("server-only", () => ({}));
-vi.mock("../../../lib/gemini", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../lib/gemini")>();
-  return { ...actual, extractLabelFromImage: vi.fn() };
-});
+vi.mock("../../../lib/extract-label-evidence", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../../lib/extract-label-evidence")>(),
+  extractLabelEvidence: vi.fn(),
+}));
 
-import { extractLabelFromImage, LabelExtractionError } from "../../../lib/gemini";
+import { LabelExtractionError } from "../../../lib/gemini";
+import { LabelEvidenceServiceError, extractLabelEvidence } from "../../../lib/extract-label-evidence";
 import { POST, runtime } from "./route";
 
-const mockedExtract = vi.mocked(extractLabelFromImage);
+const mockedExtract = vi.mocked(extractLabelEvidence);
 const maxImageBytes = 2 * 1024 * 1024;
 const application: ApplicationData = {
   beverageType: "distilled-spirits", brandName: "STONE'S THROW",
@@ -150,6 +151,7 @@ describe("POST /api/verify", () => {
   });
 
   it.each([
+    [new LabelEvidenceServiceError(), 502, "EXTRACTION_SERVICE_ERROR"],
     [new Error("fake-route-test-key internal exception"), 502, "EXTRACTION_SERVICE_ERROR"],
     [new LabelExtractionError("GEMINI_REQUEST", "fake-route-test-key"), 502, "EXTRACTION_SERVICE_ERROR"],
     [new LabelExtractionError("INVALID_JSON", "fake-route-test-key"), 502, "EXTRACTION_SERVICE_ERROR"],

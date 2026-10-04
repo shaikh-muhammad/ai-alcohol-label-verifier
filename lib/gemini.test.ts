@@ -25,6 +25,7 @@ vi.mock("@google/genai", () => ({
 }));
 
 import { extractLabelFromImage, LabelExtractionError, type LabelImageMimeType } from "./gemini";
+import { extractLabelEvidence, LabelEvidenceServiceError } from "./extract-label-evidence";
 import { ApiError } from "@google/genai";
 import { REQUIRED_GOVERNMENT_WARNING, validateGovernmentWarning } from "./validate-government-warning";
 import { evaluateGovernmentWarning } from "./evaluate-verification";
@@ -246,5 +247,44 @@ describe("extractLabelFromImage", () => {
     await expect(extractLabelFromImage(new Uint8Array(), "image/png")).rejects.toMatchObject({ code: "INVALID_IMAGE" });
     await expect(extractLabelFromImage(image, "image/gif" as LabelImageMimeType)).rejects.toMatchObject({ code: "INVALID_IMAGE" });
     expect(generateContent).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("fallback integration after Gemini retry handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("GEMINI_API_KEY", testKey);
+    vi.stubEnv("OPENAI_API_KEY", undefined);
+  });
+  afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
+  it.each([429, 408, 500, 502, 503, 504])("falls back only after all three HTTP %i attempts", async (status) => {
+    vi.useFakeTimers();
+    generateContent.mockRejectedValue(new ApiError({ status, message: testKey }));
+    const fallback = vi.spyOn(await import("./openai"), "extractLabelWithOpenAI").mockResolvedValue(extraction);
+    const pending = extractLabelEvidence(image, "image/png");
+    expect(fallback).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual(extraction);
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(fallback).toHaveBeenCalledTimes(1);
+  });
+  it("falls back after exhausted recognized network failures", async () => {
+    vi.useFakeTimers();
+    generateContent.mockRejectedValue(Object.assign(new Error(testKey), { code: "ECONNRESET" }));
+    const fallback = vi.spyOn(await import("./openai"), "extractLabelWithOpenAI").mockResolvedValue(extraction);
+    const pending = extractLabelEvidence(image, "image/png");
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual(extraction);
+    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(fallback).toHaveBeenCalledTimes(1);
+  });
+  it("returns a neutral service error when Gemini fails and the actual fallback key is missing", async () => {
+    generateContent.mockRejectedValue(new Error(testKey));
+    await expect(extractLabelEvidence(image, "image/png")).rejects.toBeInstanceOf(LabelEvidenceServiceError);
+  });
+  it("does not require a fallback key on Gemini success", async () => {
+    generateContent.mockResolvedValue({ text: JSON.stringify(extraction) });
+    expect(await extractLabelEvidence(image, "image/png")).toEqual(extraction);
   });
 });
