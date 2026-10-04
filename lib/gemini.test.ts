@@ -157,15 +157,14 @@ describe("extractLabelFromImage", () => {
     });
   });
 
-  it("detects rate limiting from the SDK's typed HTTP status without exposing its message", async () => {
+  it("maps HTTP 429 to RATE_LIMIT after one attempt without retry delays or exposing its message", async () => {
     vi.useFakeTimers();
     generateContent.mockRejectedValue(new ApiError({ message: testKey, status: 429 }));
-    const assertion = expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({
+    await expect(extractLabelFromImage(image, "image/png")).rejects.toMatchObject({
       code: "RATE_LIMIT", message: "Gemini label extraction is temporarily rate limited.",
     });
-    await vi.runAllTimersAsync();
-    await assertion;
-    expect(generateContent).toHaveBeenCalledTimes(3);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("does not schedule a delay for first-attempt success", async () => {
@@ -258,7 +257,17 @@ describe("fallback integration after Gemini retry handling", () => {
     vi.stubEnv("OPENAI_API_KEY", undefined);
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
-  it.each([429, 408, 500, 502, 503, 504])("falls back only after all three HTTP %i attempts", async (status) => {
+  it("immediately falls back after one Gemini HTTP 429 attempt without advancing timers", async () => {
+    vi.useFakeTimers();
+    generateContent.mockRejectedValue(new ApiError({ status: 429, message: testKey }));
+    const fallback = vi.spyOn(await import("./openai"), "extractLabelWithOpenAI").mockResolvedValue(extraction);
+    expect(await extractLabelEvidence(image, "image/png")).toEqual(extraction);
+    expect(generateContent).toHaveBeenCalledTimes(1);
+    expect(fallback).toHaveBeenCalledExactlyOnceWith(image, "image/png");
+    expect(generateContent.mock.invocationCallOrder[0]).toBeLessThan(fallback.mock.invocationCallOrder[0]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it.each([408, 500, 502, 503, 504])("falls back only after all three HTTP %i attempts", async (status) => {
     vi.useFakeTimers();
     generateContent.mockRejectedValue(new ApiError({ status, message: testKey }));
     const fallback = vi.spyOn(await import("./openai"), "extractLabelWithOpenAI").mockResolvedValue(extraction);
@@ -285,6 +294,8 @@ describe("fallback integration after Gemini retry handling", () => {
   });
   it("does not require a fallback key on Gemini success", async () => {
     generateContent.mockResolvedValue({ text: JSON.stringify(extraction) });
+    const fallback = vi.spyOn(await import("./openai"), "extractLabelWithOpenAI");
     expect(await extractLabelEvidence(image, "image/png")).toEqual(extraction);
+    expect(fallback).not.toHaveBeenCalled();
   });
 });

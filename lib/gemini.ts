@@ -26,7 +26,7 @@ export class LabelExtractionError extends Error {
 
 const extractionJsonSchema = z.toJSONSchema(labelExtractionSchema);
 
-const transientStatuses = new Set([408, 429, 500, 502, 503, 504]);
+const transientStatuses = new Set([408, 500, 502, 503, 504]);
 const transientNetworkCodes = new Set([
   "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN",
   "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
