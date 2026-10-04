@@ -22,10 +22,9 @@ Browser (application data + prepared image)
 Next.js /api/verify
   ↓
 OpenAI primary extraction
-  ├─ success ──────────────────────────────────────┐
-  └─ unavailable/misconfigured/rate-limited/        │
-     unusable output → Gemini fallback extraction │
-                         ↓                        ↓
+  ├─ success → continue
+  └─ provider/extraction failure → Gemini fallback → continue
+  ↓
 Shared structured extraction schema
   ↓
 Deterministic TypeScript rules
