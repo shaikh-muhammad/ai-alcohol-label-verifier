@@ -2,7 +2,7 @@
 
 A standalone prototype for verifying alcohol beverage labels against application data. It supports single-label review and batch processing with a CSV and multiple images.
 
-**AI extracts evidence. Deterministic code makes compliance decisions.** OpenAI is the primary extraction provider. Gemini is a fallback only when OpenAI is unavailable, quota/rate-limited, or cannot return valid structured extraction. Both providers read visible label text and visual evidence; neither decides compliance or infers missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
+**AI extracts evidence. Deterministic code makes compliance decisions.** OpenAI is the primary extraction provider. Gemini is a fallback only when OpenAI is unavailable, misconfigured, quota/rate-limited, or returns unusable extraction output. Both providers read visible label text and visual evidence; neither decides compliance or infers missing information. TypeScript rules produce **Pass**, **Needs Review**, or **Fail**, with reasons for each result. These results support human review and are not regulatory approval.
 
 Source Code: https://github.com/shaikh-muhammad/ai-alcohol-label-verifier
 
@@ -12,7 +12,7 @@ Live Demo: https://ai-alcohol-label-verifier-tau.vercel.app
 
 1. Enter application data and upload a label image.
 2. The browser resizes and compresses the image, then sends it with the application data to this application's own Next.js API route.
-3. The server tries OpenAI first, then Gemini Flash only on provider/extraction failure. Both extract evidence only, using the same Zod schema. Regulatory Fail or Needs Review results never trigger fallback.
+3. The server tries OpenAI first, then Gemini Flash only on provider/extraction failure. Both return the same structured evidence shape, validated with the shared Zod schema. Neither makes compliance decisions. Gemini is not consulted merely because valid OpenAI evidence later produces Fail or Needs Review.
 4. Deterministic TypeScript rules compare the extraction with the application and validate the warning and image quality.
 5. The UI displays Pass, Needs Review, or Fail. A human reviewer may manually override a field result with a review note; the automated result remains visible.
 
@@ -21,9 +21,12 @@ Browser (application data + prepared image)
   ↓
 Next.js /api/verify
   ↓
-OpenAI → Gemini Flash only on extraction/service failure
-  ↓
-Structured extraction
+OpenAI primary extraction
+  ├─ success ──────────────────────────────────────┐
+  └─ unavailable/misconfigured/rate-limited/        │
+     unusable output → Gemini fallback extraction │
+                         ↓                        ↓
+Shared structured extraction schema
   ↓
 Deterministic TypeScript rules
   ↓
@@ -111,10 +114,12 @@ Prerequisites: Node.js 20.9 or newer, npm, Git, and an OpenAI API key with acces
 
 | Variable | Purpose |
 | --- | --- |
-| `GEMINI_API_KEY` | Server-side Gemini fallback credential. Never commit a real key. |
-| `GEMINI_MODEL` | Optional model identifier. The current code and `.env.example` default to `gemini-3.8-flash`; model access depends on your account. |
-| `OPENAI_API_KEY` | Server-side primary credential. If missing, the server tries Gemini; if both providers fail, it returns a friendly service error. |
-| `OPENAI_MODEL` | Optional primary model identifier; defaults to `gpt-5.4-mini`. |
+| `OPENAI_API_KEY` | Required for the primary provider; server-side only. If missing, the server tries Gemini. |
+| `OPENAI_MODEL` | Primary model configuration: `OPENAI_MODEL=gpt-5.4-mini`. |
+| `GEMINI_API_KEY` | Enables fallback availability; server-side only. |
+| `GEMINI_MODEL` | Fallback model configuration: `GEMINI_MODEL=gemini-3.8-flash`. |
+
+Keep real keys in `.env.local` locally and Vercel environment variables in production. Never commit secrets or use `NEXT_PUBLIC_` variables for API keys. If both providers fail, the server returns a friendly provider-neutral service error.
 
 ## Tests and checks
 
@@ -124,7 +129,7 @@ npm run lint
 npm run build
 ```
 
-The repository has **500+ automated tests** covering deterministic comparisons, government-warning validation, schemas, API validation, image preparation, retry behavior, manual review helpers, and batch validation, queueing, and CSV export. Automated tests mock both providers and do not make real provider calls. Manual UI verification requires a configured API key and consumes API quota.
+The repository has **578 passing automated tests** covering deterministic comparisons, government-warning validation, schemas, API validation, image preparation, retry behavior, manual review helpers, and batch validation, queueing, and CSV export. Automated tests mock both providers and do not make real provider calls. Manual UI verification requires a configured API key and consumes API quota.
 
 The production build uses Next.js/Turbopack. It needs an environment that permits its local worker processes and port binding. The application uses system fonts and has no external font dependency or build-time font downloads.
 
@@ -138,7 +143,15 @@ For a quick evaluation, run the automated checks, try single-label verification 
 
 ## Performance
 
-The stakeholder target is approximately **5 seconds per single label**. Observed local test examples were approximately **1.5 seconds, 2.4 seconds, and 3.7 seconds**. These are illustrative observations, not a guarantee that every request finishes within five seconds. Image preparation, network conditions, model latency, and retries affect timing.
+Observed verification times varied by provider and environment. After switching to OpenAI as the primary extractor, representative tests completed in approximately **1.9–2.1 seconds locally**, and a production verification completed in approximately **2.0 seconds**. Manual verification produced these examples:
+
+| Sample | Environment | Result | Approximate time |
+| --- | --- | --- | --- |
+| Valid imported sample | Production | Pass | 2.0 seconds |
+| Valid imported sample | Local | Pass | 2.1 seconds |
+| Warning-title-case sample | Local | Fail | 1.9 seconds |
+
+These observations are not latency guarantees. The stakeholder target remains approximately **5 seconds per single label**. Image preparation, network conditions, provider latency, fallback, and retries affect timing.
 
 Batch throughput can be slower because of provider quotas, rate limits, and retries, even with two concurrent requests.
 
@@ -148,11 +161,11 @@ Batch throughput can be slower because of provider quotas, rate limits, and retr
 - The browser calls only this application's own API route for verification. Both provider calls happen server-side; only the label image and extraction instructions are sent to the selected provider, not the entered application data.
 - `GEMINI_API_KEY` and `OPENAI_API_KEY` are never exposed to browser code. `.env.local` is ignored by Git. Do not use `NEXT_PUBLIC_` variables for secrets.
 - No application analytics or external browser-loaded fonts, scripts, or CDNs. The application uses system fonts and has no external font dependency.
-- **Use synthetic/fake labels only.** Application memory-only processing does not override Google's data-use terms or hosting-provider policies.
+- **Use synthetic/fake labels only.** Application memory-only processing does not override either provider's data-use and retention terms or hosting-provider policies.
 
-### Gemini free developer tier
+### Gemini fallback and free developer tier
 
-The Gemini free developer tier may use submitted content to improve Google products. Google's [Gemini API terms](https://ai.google.dev/gemini-api/terms) describe unpaid-service data use, including possible human review. Use only synthetic/fake labels for this prototype; do not upload sensitive government or personal information.
+Gemini may receive a label image only when OpenAI extraction requires fallback. If the configured Gemini service uses the free developer tier, that tier may use submitted content to improve Google products. Google's [Gemini API terms](https://ai.google.dev/gemini-api/terms) describe unpaid-service data use, including possible human review. Use only synthetic/fake labels for this prototype; do not upload sensitive government or personal information.
 
 ### OpenAI privacy
 
@@ -160,7 +173,7 @@ The label image is sent to OpenAI first, and to Gemini if OpenAI extraction fail
 
 ### Production and government deployment
 
-A production federal deployment would require an appropriately approved government-compliant AI endpoint, agency security authorization, PII handling requirements, retention policies, audit/logging requirements, infrastructure and network review, and FedRAMP-related review where applicable. **This prototype is not claimed to be FedRAMP compliant.**
+**This prototype is not approved for production government data and is not claimed to be FedRAMP compliant.** A production government deployment would require review of provider agreements, data retention, logging, PII handling, agency authorization and applicable FedRAMP requirements, network controls, and agency policy.
 
 ## Limitations
 
@@ -168,7 +181,7 @@ A production federal deployment would require an appropriately approved governme
 - Does not comprehensively implement every TTB rule.
 - Physical font size cannot be reliably measured from arbitrary photographs without scale information.
 - AI visual extraction can vary between runs, including boldness and image-quality assessments.
-- Gemini free tier can return temporary rate or service errors; batch throughput depends on API quota.
+- Either provider can return temporary rate or service errors; fallback availability and batch throughput depend on provider configuration and API quota.
 - No COLA integration.
 - No persistence or audit database; manual review state is not a durable audit record.
 
